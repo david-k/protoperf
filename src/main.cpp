@@ -263,7 +263,7 @@ int main(int argc, char *argv[])
 			double mbits = (bytes_read * 8) / 1000000.0;
 			double mbps = mbits / elapsed.count();
 
-			std::cout << "Bytes read: " << bytes_read
+			std::cout << "Read " << (bytes_read / 1024.0 / 1024.0) << " Mbytes"
 			          << " in " << elapsed.count() << " s"
 			          << " (" << mbps << " Mbits/sec)" << std::endl;
 		}
@@ -290,11 +290,12 @@ int main(int argc, char *argv[])
 			bytes_written += buffer.size();
 		}
 
-		assert(invoc.bytes_to_send - bytes_written <= buffer.size());
-		write_all(socket.get(), buffer.data(), invoc.bytes_to_send - bytes_written);
-		bytes_written += buffer.size();
+		auto rest = invoc.bytes_to_send - bytes_written;
+		assert(rest <= buffer.size());
+		write_all(socket.get(), buffer.data(), rest);
+		bytes_written += rest;
 
-		std::cout << "Bytes written: " << bytes_written << std::endl;
+		std::cout << "Wrote " << (bytes_written / 1024.0 / 1024.0) << " Mbytes" << std::endl;
 	}
 		
 }
