@@ -68,7 +68,7 @@ public:
 			else
 			{
 				Address addr{m_addr.type(), "", (::sockaddr*)&client_addr, addr_size};
-				return std::make_unique<TCPSocket>(addr, client_sock);
+				return std::unique_ptr<TCPSocket>{new TCPSocket{addr, client_sock}};
 			}
 		}
 	}
@@ -199,7 +199,8 @@ std::unique_ptr<Socket> make_benchmark_socket(Invocation::Protocol protocol, Add
 {
 	switch(protocol)
 	{
-		case Invocation::Protocol::tcp: return std::make_unique<TCPSocket>(addr);
+		case Invocation::Protocol::tcp: return std::unique_ptr<TCPSocket>{new TCPSocket{addr}};
+;
 		default:
 			throw std::runtime_error{"Unsupported protocol: " + to_string(protocol)};
 	};
