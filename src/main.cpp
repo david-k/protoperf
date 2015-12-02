@@ -3,6 +3,7 @@
 #include <iostream>
 #include <memory>
 #include <chrono>
+#include <cassert>
 
 #include <udt/udt.h>
 
@@ -149,6 +150,7 @@ struct Invocation
 
 	// Client
 	std::string host;
+	size_t bytes_to_send;
 };
 
 std::string to_string(Invocation::Protocol p)
@@ -167,6 +169,7 @@ Invocation parse_args(int argc, char *argv[])
 	Invocation invoc;
 	invoc.protocol = Invocation::Protocol::tcp;
 	invoc.port = "9001";
+	invoc.bytes_to_send = 1024 * 1024;
 
 	for(int i = 1; i < argc; ++i)
 	{
@@ -184,6 +187,13 @@ Invocation parse_args(int argc, char *argv[])
 				throw std::runtime_error{"You must specify a host the client can connect to"};
 
 			invoc.host = argv[i];
+		}
+		else if(!std::strcmp(argv[i], "-l"))
+		{
+			if(++i == argc)
+				throw std::runtime_error{"You must specify the number of Mbytes"};
+
+			invoc.bytes_to_send = std::strtoull(argv[i], nullptr, 10) * 1024 * 1024;
 		}
 	}
 
@@ -269,15 +279,20 @@ int main(int argc, char *argv[])
 
 		socket->connect();
 
+		size_t const max_buffer_size = 100 * 1024 * 1024;
 		size_t bytes_written = 0;
-		std::vector<char> buffer(1000 * 1024 * 1024);
+		std::vector<char> buffer(std::min(max_buffer_size, invoc.bytes_to_send));
 
-		for(int i = 0; i < 50; ++i)
+		size_t iterations = invoc.bytes_to_send / max_buffer_size;
+		for(size_t i = 0; i < iterations; ++i)
 		{
 			write_all(socket.get(), buffer.data(), buffer.size());
 			bytes_written += buffer.size();
 		}
 
+		assert(invoc.bytes_to_send - bytes_written <= buffer.size());
+		write_all(socket.get(), buffer.data(), invoc.bytes_to_send - bytes_written);
+		bytes_written += buffer.size();
 
 		std::cout << "Bytes written: " << bytes_written << std::endl;
 	}
