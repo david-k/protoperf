@@ -1,8 +1,10 @@
 #pragma once
 
 #include "common.hpp"
+#include "congestion_control.hpp"
 
 #include <udt/udt.h>
+#include <udt/ccc.h>
 
 #include <memory>
 #include <unistd.h>
@@ -132,17 +134,22 @@ private:
 class UDTSocket : public Socket
 {
 public:
-	UDTSocket(Address const &addr) :
+	UDTSocket(Address const &addr, bool ctcp) :
 		m_addr{addr},
 		m_socket{UDT::socket(addr.family(), addr.type(), 0)}
 	{
 		if(m_socket == UDT::INVALID_SOCK)
 			throw std::runtime_error{std::string{"UDT::socket(): "} + UDT::getlasterror_desc()};
+
+		if(ctcp) setCTCP();
 	}
 
-	UDTSocket(Address const &addr, UDTSOCKET sock) :
+	UDTSocket(Address const &addr, UDTSOCKET sock, bool ctcp) :
 		m_addr{addr},
-		m_socket{sock} {}
+		m_socket{sock}
+	{
+		if(ctcp) setCTCP();
+	}
 
 	virtual ~UDTSocket()
 	{
@@ -169,7 +176,9 @@ public:
 		else
 		{
 			Address addr{m_addr.type(), "", (::sockaddr*)&client_addr, (size_t)addr_size};
-			return std::unique_ptr<UDTSocket>{new UDTSocket{addr, client_sock}};
+			std::unique_ptr<UDTSocket> client{new UDTSocket{addr, client_sock, m_ctcp}};
+
+			return std::move(client);
 		}
 	}
 
@@ -213,4 +222,13 @@ public:
 private:
 	Address m_addr;
 	UDTSOCKET m_socket;
+	bool m_ctcp;
+
+private:
+	void setCTCP()
+	{
+		// Use TCP congestion control
+		if(UDT::setsockopt(m_socket, 0, UDT_CC, new CCCFactory<CTCP>, sizeof(CCCFactory<CTCP>)) == UDT::ERROR)
+			throw std::runtime_error{std::string{"UDT::setsockopt(): "} + UDT::getlasterror_desc()};
+	}
 };

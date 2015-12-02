@@ -29,6 +29,9 @@ struct Invocation
 	// Client
 	std::string host;
 	size_t bytes_to_send;
+
+	// UDT
+	bool use_ctcp; // TCP Congestion Control
 };
 
 std::string to_string(Invocation::Protocol p)
@@ -48,6 +51,7 @@ Invocation parse_args(int argc, char *argv[])
 	invoc.protocol = Invocation::Protocol::tcp;
 	invoc.port = "9001";
 	invoc.bytes_to_send = 1024 * 1024;
+	invoc.use_ctcp = false;
 
 	for(int i = 1; i < argc; ++i)
 	{
@@ -77,6 +81,12 @@ Invocation parse_args(int argc, char *argv[])
 		{
 			invoc.protocol = Invocation::Protocol::udt;
 		}
+		else if(!std::strcmp(argv[i], "--ctcp"))
+		{
+			invoc.use_ctcp = true;
+		}
+		else
+			throw std::runtime_error{std::string{"Unknown flag: "} + argv[i]};
 	}
 
 	if(!mode_specified)
@@ -87,15 +97,15 @@ Invocation parse_args(int argc, char *argv[])
 
 
 //==================================================================================================
-std::unique_ptr<Socket> make_benchmark_socket(Invocation::Protocol protocol, Address const &addr)
+std::unique_ptr<Socket> make_benchmark_socket(Invocation const &invoc, Address const &addr)
 {
-	switch(protocol)
+	switch(invoc.protocol)
 	{
 		case Invocation::Protocol::tcp: return std::unique_ptr<TCPSocket>{new TCPSocket{addr}};
-		case Invocation::Protocol::udt: return std::unique_ptr<UDTSocket>{new UDTSocket{addr}};
+		case Invocation::Protocol::udt: return std::unique_ptr<UDTSocket>{new UDTSocket{addr, invoc.use_ctcp}};
 ;
 		default:
-			throw std::runtime_error{"Unsupported protocol: " + to_string(protocol)};
+			throw std::runtime_error{"Unsupported protocol: " + to_string(invoc.protocol)};
 	};
 }
 
@@ -124,7 +134,8 @@ int main(int argc, char *argv[])
 			throw std::runtime_error{"No addresses found"};
 
 		std::cout << addrs[0] << std::endl;
-		auto socket = make_benchmark_socket(invoc.protocol, addrs[0]);
+		std::cout << "Protocol: " << to_string(invoc.protocol) << std::endl;
+		auto socket = make_benchmark_socket(invoc, addrs[0]);
 		socket->listen();
 
 		std::vector<char> buffer(10 * 1024 * 1024);
@@ -158,7 +169,8 @@ int main(int argc, char *argv[])
 			throw std::runtime_error{"No addresses found"};
 
 		std::cout << addrs[0] << std::endl;
-		auto socket = make_benchmark_socket(invoc.protocol, addrs[0]);
+		std::cout << "Protocol: " << to_string(invoc.protocol) << std::endl;
+		auto socket = make_benchmark_socket(invoc, addrs[0]);
 
 		socket->connect();
 
