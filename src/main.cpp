@@ -58,13 +58,13 @@ public:
 		while(true)
 		{
 			::sockaddr_storage client_addr;
-			socklen_t addr_size;
+			socklen_t addr_size = sizeof(client_addr);
 			int client_sock = ::accept(m_socket, (::sockaddr*)&client_addr, &addr_size);
 
 			if(client_sock == -1)
 			{
 				if(errno != EAGAIN && errno != EWOULDBLOCK && errno != ECONNABORTED)
-					throw std::runtime_error{"server::accept(): accept()" + errno_string(errno)};
+					throw std::runtime_error{"accept(): " + errno_string(errno)};
 			}
 			else
 			{
