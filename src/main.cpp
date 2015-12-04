@@ -136,6 +136,7 @@ int main(int argc, char *argv[])
 		std::cout << addrs[0] << std::endl;
 		std::cout << "Protocol: " << to_string(invoc.protocol) << std::endl;
 		auto socket = make_benchmark_socket(invoc, addrs[0]);
+		socket->print_options();
 		socket->listen();
 
 		std::vector<char> buffer(10 * 1024 * 1024);
@@ -171,7 +172,7 @@ int main(int argc, char *argv[])
 		std::cout << addrs[0] << std::endl;
 		std::cout << "Protocol: " << to_string(invoc.protocol) << std::endl;
 		auto socket = make_benchmark_socket(invoc, addrs[0]);
-
+		socket->print_options();
 		socket->connect();
 
 		size_t const max_buffer_size = 100 * 1024 * 1024;
@@ -191,6 +192,7 @@ int main(int argc, char *argv[])
 		bytes_written += rest;
 
 		std::cout << "Wrote " << (bytes_written / 1024.0 / 1024.0) << " Mbytes" << std::endl;
+		socket->print_statistics();
 	}
 		
 }

@@ -7,7 +7,9 @@
 #include <udt/ccc.h>
 
 #include <memory>
+#include <iostream>
 #include <unistd.h>
+#include <netinet/tcp.h>
 
 
 //==================================================================================================
@@ -21,6 +23,9 @@ public:
 	virtual void connect() = 0;
 	virtual size_t write(char const *src, size_t size) = 0;
 	virtual size_t read(char *dest, size_t size) = 0;
+
+	virtual void print_options() {}
+	virtual void print_statistics() {}
 };
 
 
@@ -124,6 +129,16 @@ public:
 		}
 	}
 
+	virtual void print_statistics()
+	{
+		tcp_info info;
+		socklen_t info_size = sizeof(info);
+		if(getsockopt(m_socket, SOL_TCP, TCP_INFO, (void*)&info, &info_size) != 0)
+			throw std::runtime_error{"getsockopt(): " + errno_string(errno)};
+
+		std::cout << "RTT: " << info.tcpi_rtt / 1000.0 << " ms\n";
+	}
+
 private:
 	Address m_addr;
 	int m_socket;
@@ -131,6 +146,24 @@ private:
 
 
 //==================================================================================================
+template<typename T>
+void udt_setsockopt(UDTSOCKET sock, UDT::SOCKOPT opt_name, T val)
+{
+	if(UDT::setsockopt(sock, 0, opt_name, (void*)&val, sizeof(val)) == UDT::ERROR)
+		throw std::runtime_error{std::string{"UDT::setsockopt(): "} + UDT::getlasterror_desc()};
+}
+
+template<typename T>
+T udt_getsockopt(UDTSOCKET sock, UDT::SOCKOPT opt_name)
+{
+	T val;
+	int len;
+	if(UDT::getsockopt(sock, 0, opt_name, (void*)&val, &len) == UDT::ERROR)
+		throw std::runtime_error{std::string{"UDT::getsockopt(): "} + UDT::getlasterror_desc()};
+
+	return val;
+}
+
 class UDTSocket : public Socket
 {
 public:
@@ -140,6 +173,14 @@ public:
 	{
 		if(m_socket == UDT::INVALID_SOCK)
 			throw std::runtime_error{std::string{"UDT::socket(): "} + UDT::getlasterror_desc()};
+
+		int udp_buf_size = 1000 *1024 * 1024;
+		udt_setsockopt(m_socket, UDP_SNDBUF, udp_buf_size);
+		udt_setsockopt(m_socket, UDP_RCVBUF, udp_buf_size);
+		udt_setsockopt(m_socket, UDT_SNDBUF, udp_buf_size);
+		udt_setsockopt(m_socket, UDT_RCVBUF, udp_buf_size);
+
+		udt_setsockopt(m_socket, UDT_MSS, 2500);
 
 		if(ctcp) setCTCP();
 	}
@@ -217,6 +258,28 @@ public:
 		}
 		else
 			return recv_res;
+	}
+
+	virtual void print_options()
+	{
+		std::cout << "UDT send buffer: " << udt_getsockopt<int>(m_socket, UDT_SNDBUF) / 1024.0 / 1024.0 << " MB\n"
+		          << "UDT recv buffer: " << udt_getsockopt<int>(m_socket, UDT_SNDBUF) / 1024.0 / 1024.0 << " MB\n"
+		          << "UDP send buffer: " << udt_getsockopt<int>(m_socket, UDP_SNDBUF) / 1024.0 / 1024.0 << " MB\n"
+		          << "UDP recv buffer: " << udt_getsockopt<int>(m_socket, UDP_RCVBUF) / 1024.0 / 1024.0 << " MB"
+		          << std::endl;
+	}
+
+	virtual void print_statistics()
+	{
+		// TODO Print bandwidth as obtained from UDT::perfmon() and compare with our results
+		UDT::TRACEINFO perf;
+		if(UDT::perfmon(m_socket, &perf) == UDT::ERROR)
+			throw std::runtime_error{std::string{"UDT::perfmon(): "} + UDT::getlasterror_desc()};
+
+		std::cout << "RTT:            " << perf.msRTT << " ms\n"
+		          << "Sending rate:   " << perf.mbpsSendRate << " Mbps\n"
+		          << "Receiving rate: " << perf.mbpsRecvRate << " Mbps\n"
+		          << "Bandwidth:      " << perf.mbpsBandwidth << " Mbps" << std::endl;
 	}
 
 private:
