@@ -175,8 +175,6 @@ public:
 			throw std::runtime_error{std::string{"UDT::socket(): "} + UDT::getlasterror_desc()};
 
 		int udp_buf_size = 1000 *1024 * 1024;
-		udt_setsockopt(m_socket, UDP_SNDBUF, udp_buf_size);
-		udt_setsockopt(m_socket, UDP_RCVBUF, udp_buf_size);
 		udt_setsockopt(m_socket, UDT_SNDBUF, udp_buf_size);
 		udt_setsockopt(m_socket, UDT_RCVBUF, udp_buf_size);
 
