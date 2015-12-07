@@ -31,7 +31,12 @@ struct Invocation
 	size_t bytes_to_send;
 
 	// UDT
-	bool use_ctcp; // TCP Congestion Control
+	bool udt_use_ctcp; // TCP Congestion Control
+	int udt_snd_buf = -1;
+	int udt_rcv_buf = -1;
+	int udp_snd_buf = -1;
+	int udp_rcv_buf = -1;
+	int udt_packet_size = -1;
 };
 
 std::string to_string(Invocation::Protocol p)
@@ -44,6 +49,24 @@ std::string to_string(Invocation::Protocol p)
 	};
 }
 
+size_t parse_byte_size(char const *str)
+{
+	auto length = strlen(str);
+	if(!length)
+		throw std::runtime_error{"parse_byte_size(): empty string"};
+
+	auto unit = str[length - 1];
+	int mul = 1;
+	switch(unit)
+	{
+		case 'K': mul = 1024; break;
+		case 'M': mul = 1024 * 1024; break;
+		case 'G': mul = 1024 * 1024 * 1024; break;
+	};
+
+	return std::stoull(str, nullptr, 10) * mul;
+}
+
 Invocation parse_args(int argc, char *argv[])
 {
 	bool mode_specified = false;
@@ -51,7 +74,7 @@ Invocation parse_args(int argc, char *argv[])
 	invoc.protocol = Invocation::Protocol::tcp;
 	invoc.port = "9001";
 	invoc.bytes_to_send = 1024 * 1024;
-	invoc.use_ctcp = false;
+	invoc.udt_use_ctcp = false;
 
 	for(int i = 1; i < argc; ++i)
 	{
@@ -75,15 +98,50 @@ Invocation parse_args(int argc, char *argv[])
 			if(++i == argc)
 				throw std::runtime_error{"You must specify the number of Mbytes"};
 
-			invoc.bytes_to_send = std::strtoull(argv[i], nullptr, 10) * 1024 * 1024;
+			invoc.bytes_to_send = parse_byte_size(argv[i]);
 		}
 		else if(!std::strcmp(argv[i], "--udt"))
 		{
 			invoc.protocol = Invocation::Protocol::udt;
 		}
-		else if(!std::strcmp(argv[i], "--ctcp"))
+		else if(!std::strcmp(argv[i], "--udt-ctcp"))
 		{
-			invoc.use_ctcp = true;
+			invoc.udt_use_ctcp = true;
+		}
+		else if(!std::strcmp(argv[i], "--udt-packet-size"))
+		{
+			if(++i == argc)
+				throw std::runtime_error{"You must specify the number of Mbytes"};
+
+			invoc.udt_packet_size = parse_byte_size(argv[i]);
+		}
+		else if(!std::strcmp(argv[i], "--udt-snd-buf"))
+		{
+			if(++i == argc)
+				throw std::runtime_error{"You must specify the number of Mbytes"};
+
+			invoc.udt_snd_buf = parse_byte_size(argv[i]);
+		}
+		else if(!std::strcmp(argv[i], "--udt-rcv-buf"))
+		{
+			if(++i == argc)
+				throw std::runtime_error{"You must specify the number of Mbytes"};
+
+			invoc.udt_rcv_buf = parse_byte_size(argv[i]);
+		}
+		else if(!std::strcmp(argv[i], "--udp-snd-buf"))
+		{
+			if(++i == argc)
+				throw std::runtime_error{"You must specify the number of Mbytes"};
+
+			invoc.udp_snd_buf = parse_byte_size(argv[i]);
+		}
+		else if(!std::strcmp(argv[i], "--udp-rcv-buf"))
+		{
+			if(++i == argc)
+				throw std::runtime_error{"You must specify the number of Mbytes"};
+
+			invoc.udp_rcv_buf = parse_byte_size(argv[i]);
 		}
 		else
 			throw std::runtime_error{std::string{"Unknown flag: "} + argv[i]};
@@ -102,7 +160,27 @@ std::unique_ptr<Socket> make_benchmark_socket(Invocation const &invoc, Address c
 	switch(invoc.protocol)
 	{
 		case Invocation::Protocol::tcp: return std::unique_ptr<TCPSocket>{new TCPSocket{addr}};
-		case Invocation::Protocol::udt: return std::unique_ptr<UDTSocket>{new UDTSocket{addr, invoc.use_ctcp}};
+		case Invocation::Protocol::udt:
+		{
+		    std::unique_ptr<UDTSocket> sock{new UDTSocket{addr}};
+
+			if(invoc.udt_use_ctcp)
+				sock->useCTCP();
+
+			if(invoc.udt_snd_buf != -1)
+				udt_setsockopt(sock->native(), UDT_SNDBUF, invoc.udt_snd_buf);
+			if(invoc.udt_rcv_buf != -1)
+				udt_setsockopt(sock->native(), UDT_RCVBUF, invoc.udt_rcv_buf);
+			if(invoc.udp_snd_buf != -1)
+				udt_setsockopt(sock->native(), UDP_SNDBUF, invoc.udp_snd_buf);
+			if(invoc.udp_rcv_buf != -1)
+				udt_setsockopt(sock->native(), UDP_RCVBUF, invoc.udp_rcv_buf);
+
+			if(invoc.udt_packet_size != -1)
+				udt_setsockopt(sock->native(), UDT_MSS, invoc.udt_packet_size);
+
+			return std::move(sock);
+		}
 ;
 		default:
 			throw std::runtime_error{"Unsupported protocol: " + to_string(invoc.protocol)};

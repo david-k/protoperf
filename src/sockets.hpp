@@ -167,32 +167,30 @@ T udt_getsockopt(UDTSOCKET sock, UDT::SOCKOPT opt_name)
 class UDTSocket : public Socket
 {
 public:
-	UDTSocket(Address const &addr, bool ctcp) :
+	UDTSocket(Address const &addr) :
 		m_addr{addr},
 		m_socket{UDT::socket(addr.family(), addr.type(), 0)}
 	{
 		if(m_socket == UDT::INVALID_SOCK)
 			throw std::runtime_error{std::string{"UDT::socket(): "} + UDT::getlasterror_desc()};
-
-		int udp_buf_size = 1000 *1024 * 1024;
-		udt_setsockopt(m_socket, UDT_SNDBUF, udp_buf_size);
-		udt_setsockopt(m_socket, UDT_RCVBUF, udp_buf_size);
-
-		udt_setsockopt(m_socket, UDT_MSS, 2500);
-
-		if(ctcp) setCTCP();
 	}
 
-	UDTSocket(Address const &addr, UDTSOCKET sock, bool ctcp) :
+	UDTSocket(Address const &addr, UDTSOCKET sock) :
 		m_addr{addr},
-		m_socket{sock}
-	{
-		if(ctcp) setCTCP();
-	}
+		m_socket{sock} {}
 
 	virtual ~UDTSocket()
 	{
 		UDT::close(m_socket);
+	}
+
+	UDTSOCKET native() { return m_socket; }
+
+	void useCTCP()
+	{
+		// Use TCP congestion control
+		if(UDT::setsockopt(m_socket, 0, UDT_CC, new CCCFactory<CTCP>, sizeof(CCCFactory<CTCP>)) == UDT::ERROR)
+			throw std::runtime_error{std::string{"UDT::setsockopt(): "} + UDT::getlasterror_desc()};
 	}
 
 	virtual void listen()
@@ -215,7 +213,7 @@ public:
 		else
 		{
 			Address addr{m_addr.type(), "", (::sockaddr*)&client_addr, (size_t)addr_size};
-			std::unique_ptr<UDTSocket> client{new UDTSocket{addr, client_sock, m_ctcp}};
+			std::unique_ptr<UDTSocket> client{new UDTSocket{addr, client_sock}};
 
 			return std::move(client);
 		}
@@ -261,9 +259,10 @@ public:
 	virtual void print_options()
 	{
 		std::cout << "UDT send buffer: " << udt_getsockopt<int>(m_socket, UDT_SNDBUF) / 1024.0 / 1024.0 << " MB\n"
-		          << "UDT recv buffer: " << udt_getsockopt<int>(m_socket, UDT_SNDBUF) / 1024.0 / 1024.0 << " MB\n"
+		          << "UDT recv buffer: " << udt_getsockopt<int>(m_socket, UDT_RCVBUF) / 1024.0 / 1024.0 << " MB\n"
 		          << "UDP send buffer: " << udt_getsockopt<int>(m_socket, UDP_SNDBUF) / 1024.0 / 1024.0 << " MB\n"
-		          << "UDP recv buffer: " << udt_getsockopt<int>(m_socket, UDP_RCVBUF) / 1024.0 / 1024.0 << " MB"
+		          << "UDP recv buffer: " << udt_getsockopt<int>(m_socket, UDP_RCVBUF) / 1024.0 / 1024.0 << " MB\n"
+		          << "UDT packet size: " << udt_getsockopt<int>(m_socket, UDT_MSS) << " B"
 		          << std::endl;
 	}
 
@@ -283,13 +282,4 @@ public:
 private:
 	Address m_addr;
 	UDTSOCKET m_socket;
-	bool m_ctcp;
-
-private:
-	void setCTCP()
-	{
-		// Use TCP congestion control
-		if(UDT::setsockopt(m_socket, 0, UDT_CC, new CCCFactory<CTCP>, sizeof(CCCFactory<CTCP>)) == UDT::ERROR)
-			throw std::runtime_error{std::string{"UDT::setsockopt(): "} + UDT::getlasterror_desc()};
-	}
 };
