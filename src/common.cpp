@@ -31,7 +31,7 @@ char const* address_family_to_string(int fam)
 		case AF_APPLETALK: return "appletalk";
 		case AF_PACKET: return "packet";
 		case AF_UNIX: return "unix";
-		default: throw std::runtime_error{"to_impl(): Invalid address family"};
+		default: throw std::runtime_error{"address_family_to_string(): Invalid address family"};
 	};
 }
 

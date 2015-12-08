@@ -4,6 +4,7 @@
 
 
 //==================================================================================================
+// Very basic emulation of TCP's congestion control for UDT.
 class CTCP: public CCC
 {
 public:

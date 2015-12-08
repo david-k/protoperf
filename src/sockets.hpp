@@ -29,6 +29,19 @@ public:
 };
 
 
+void write_all(Socket *sock, char const *data, size_t size)
+{
+	while(size)
+	{
+		size_t write_res = sock->write(data, size);
+		if(write_res == 0)
+			throw std::runtime_error{"write_all(): connection closed"};
+
+		size -= write_res;
+	}
+}
+
+
 //==================================================================================================
 class TCPSocket : public Socket
 {
@@ -82,13 +95,13 @@ public:
 
 	virtual void connect()
 	{
-        if(::connect(m_socket, m_addr.native_address(), m_addr.native_size()) == -1)
-        {
-            // If no connection could be established immediatly, connect() returns but the connection
-            // process is continued asyncronously.
-            if(errno != EINPROGRESS)
-                throw std::runtime_error{"connect(): " + errno_string(errno)};
-        }
+		if(::connect(m_socket, m_addr.native_address(), m_addr.native_size()) == -1)
+		{
+			// If no connection could be established immediatly, connect() returns but the connection
+			// process is continued asyncronously.
+			if(errno != EINPROGRESS)
+				throw std::runtime_error{"connect(): " + errno_string(errno)};
+		}
 	}
 
 	virtual size_t write(char const *src, size_t size)
@@ -164,6 +177,7 @@ T udt_getsockopt(UDTSOCKET sock, UDT::SOCKOPT opt_name)
 	return val;
 }
 
+
 class UDTSocket : public Socket
 {
 public:
@@ -188,7 +202,6 @@ public:
 
 	void useCTCP()
 	{
-		// Use TCP congestion control
 		if(UDT::setsockopt(m_socket, 0, UDT_CC, new CCCFactory<CTCP>, sizeof(CCCFactory<CTCP>)) == UDT::ERROR)
 			throw std::runtime_error{std::string{"UDT::setsockopt(): "} + UDT::getlasterror_desc()};
 	}
@@ -268,7 +281,6 @@ public:
 
 	virtual void print_statistics()
 	{
-		// TODO Print bandwidth as obtained from UDT::perfmon() and compare with our results
 		UDT::TRACEINFO perf;
 		if(UDT::perfmon(m_socket, &perf) == UDT::ERROR)
 			throw std::runtime_error{std::string{"UDT::perfmon(): "} + UDT::getlasterror_desc()};
