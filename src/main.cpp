@@ -48,7 +48,7 @@ struct Invocation
 	// Common options
 	Mode mode;
 	Protocol protocol = Protocol::tcp;
-	std::string port = "2000";
+	std::string port = "9001";
 	SocketOpts opts;
 
 	// Client options
@@ -111,6 +111,13 @@ Invocation parse_args(int argc, char *argv[], Invocation const defaults = {})
 				throw std::runtime_error{"You must specify a number"};
 
 			invoc.repeats = std::stoul(argv[i], nullptr, 10);
+		}
+		else if(!std::strcmp(argv[i], "-p"))
+		{
+			if(++i == argc)
+				throw std::runtime_error{"You must specify a port"};
+
+			invoc.port = argv[i];
 		}
 		else if(!std::strcmp(argv[i], "--udt"))
 		{
