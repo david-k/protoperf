@@ -26,7 +26,6 @@ std::string to_string(Protocol p)
 
 struct SocketOpts
 {
-	bool udt_use_ctcp = false; // Let UDT emulate TCP's congestion control
 	int udt_snd_buf = -1;
 	int udt_rcv_buf = -1;
 	int udp_snd_buf = -1;
@@ -49,7 +48,7 @@ struct Invocation
 	// Common options
 	Mode mode;
 	Protocol protocol = Protocol::tcp;
-	std::string port = "9001";
+	std::string port = "2000";
 	SocketOpts opts;
 
 	// Client options
@@ -116,10 +115,6 @@ Invocation parse_args(int argc, char *argv[], Invocation const defaults = {})
 		else if(!std::strcmp(argv[i], "--udt"))
 		{
 			invoc.protocol = Protocol::udt;
-		}
-		else if(!std::strcmp(argv[i], "--udt-ctcp"))
-		{
-			invoc.opts.udt_use_ctcp = true;
 		}
 		else if(!std::strcmp(argv[i], "--udt-packet-size"))
 		{
@@ -210,9 +205,6 @@ std::unique_ptr<Socket> make_benchmark_socket(Protocol proto, SocketOpts const &
 		{
 		    std::unique_ptr<UDTSocket> sock{new UDTSocket{addr}};
 
-			if(opts.udt_use_ctcp)
-				sock->useCTCP();
-
 			if(opts.udt_snd_buf != -1)
 				udt_setsockopt(sock->native(), UDT_SNDBUF, opts.udt_snd_buf);
 			if(opts.udt_rcv_buf != -1)
@@ -227,7 +219,7 @@ std::unique_ptr<Socket> make_benchmark_socket(Protocol proto, SocketOpts const &
 
 			return std::move(sock);
 		}
-;
+
 		default:
 			throw std::runtime_error{"Unsupported protocol: " + to_string(proto)};
 	};

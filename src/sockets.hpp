@@ -1,7 +1,6 @@
 #pragma once
 
 #include "common.hpp"
-#include "congestion_control.hpp"
 
 #include <udt/udt.h>
 #include <udt/ccc.h>
@@ -199,12 +198,6 @@ public:
 	}
 
 	UDTSOCKET native() { return m_socket; }
-
-	void useCTCP()
-	{
-		if(UDT::setsockopt(m_socket, 0, UDT_CC, new CCCFactory<CTCP>, sizeof(CCCFactory<CTCP>)) == UDT::ERROR)
-			throw std::runtime_error{std::string{"UDT::setsockopt(): "} + UDT::getlasterror_desc()};
-	}
 
 	virtual void listen()
 	{
