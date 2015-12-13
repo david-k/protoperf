@@ -2,8 +2,7 @@ protoperf
 =========
 
 protoperf is a tool to measure the throughput of a network connection, very
-similar to [iperf][1]. But since iperf only supports TCP and UDP and I needed to
-compare TCP with [UDT][2] I wrote protoperf.
+similar to [iperf][1] but with support for [UDT][2].
 
 
 Example
