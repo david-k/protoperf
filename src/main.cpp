@@ -1,10 +1,12 @@
 #include "common.hpp"
-#include "sockets.hpp"
+#include "tcp.hpp"
+#include "udt.hpp"
 
 #include <iostream>
 #include <memory>
 #include <chrono>
 #include <cassert>
+#include <fcntl.h>
 
 
 //==================================================================================================
@@ -50,12 +52,13 @@ struct Invocation
 	Protocol protocol = Protocol::tcp;
 	std::string port = "9001";
 	SocketOpts opts;
+	size_t buffer_size = 8 * 1024;
 
 	// Client options
 	std::string host;
-	size_t bytes_to_send = 1024 * 1024;
 	int repeats = 1;
 	std::string run_file;
+	size_t bytes_to_send = 1024 * 1024;
 };
 
 size_t parse_byte_size(char const *str)
@@ -79,7 +82,7 @@ size_t parse_byte_size(char const *str)
 	return std::stoull(str, nullptr, 10) * mul;
 }
 
-Invocation parse_args(int argc, char *argv[], Invocation const defaults = {})
+Invocation parse_args(int argc, char *argv[], Invocation const &defaults = {})
 {
 	Invocation invoc = defaults;
 
@@ -98,13 +101,6 @@ Invocation parse_args(int argc, char *argv[], Invocation const defaults = {})
 
 			invoc.host = argv[i];
 		}
-		else if(!std::strcmp(argv[i], "-n"))
-		{
-			if(++i == argc)
-				throw std::runtime_error{"You must specify the number of Mbytes"};
-
-			invoc.bytes_to_send = parse_byte_size(argv[i]);
-		}
 		else if(!std::strcmp(argv[i], "-r"))
 		{
 			if(++i == argc)
@@ -119,6 +115,20 @@ Invocation parse_args(int argc, char *argv[], Invocation const defaults = {})
 
 			invoc.port = argv[i];
 		}
+		else if(!std::strcmp(argv[i], "-n"))
+		{
+			if(++i == argc)
+				throw std::runtime_error{"You must specify the number of bytes"};
+
+			invoc.bytes_to_send = parse_byte_size(argv[i]);
+		}
+		else if(!std::strcmp(argv[i], "-l"))
+		{
+			if(++i == argc)
+				throw std::runtime_error{"You must specify the number of bytes"};
+
+			invoc.buffer_size = parse_byte_size(argv[i]);
+		}
 		else if(!std::strcmp(argv[i], "--udt"))
 		{
 			invoc.protocol = Protocol::udt;
@@ -126,35 +136,35 @@ Invocation parse_args(int argc, char *argv[], Invocation const defaults = {})
 		else if(!std::strcmp(argv[i], "--udt-packet-size"))
 		{
 			if(++i == argc)
-				throw std::runtime_error{"You must specify the number of Mbytes"};
+				throw std::runtime_error{"You must specify the number of bytes"};
 
 			invoc.opts.udt_packet_size = parse_byte_size(argv[i]);
 		}
 		else if(!std::strcmp(argv[i], "--udt-snd-buf"))
 		{
 			if(++i == argc)
-				throw std::runtime_error{"You must specify the number of Mbytes"};
+				throw std::runtime_error{"You must specify the number of bytes"};
 
 			invoc.opts.udt_snd_buf = parse_byte_size(argv[i]);
 		}
 		else if(!std::strcmp(argv[i], "--udt-rcv-buf"))
 		{
 			if(++i == argc)
-				throw std::runtime_error{"You must specify the number of Mbytes"};
+				throw std::runtime_error{"You must specify the number of bytes"};
 
 			invoc.opts.udt_rcv_buf = parse_byte_size(argv[i]);
 		}
 		else if(!std::strcmp(argv[i], "--udp-snd-buf"))
 		{
 			if(++i == argc)
-				throw std::runtime_error{"You must specify the number of Mbytes"};
+				throw std::runtime_error{"You must specify the number of bytes"};
 
 			invoc.opts.udp_snd_buf = parse_byte_size(argv[i]);
 		}
 		else if(!std::strcmp(argv[i], "--udp-rcv-buf"))
 		{
 			if(++i == argc)
-				throw std::runtime_error{"You must specify the number of Mbytes"};
+				throw std::runtime_error{"You must specify the number of bytes"};
 
 			invoc.opts.udp_rcv_buf = parse_byte_size(argv[i]);
 		}
@@ -234,6 +244,75 @@ std::unique_ptr<Socket> make_benchmark_socket(Protocol proto, SocketOpts const &
 
 
 //==================================================================================================
+class RandomSource
+{
+public:
+	RandomSource()
+	{
+		m_fd = ::open("/dev/urandom", O_RDONLY);
+		if(m_fd == -1)
+			throw std::runtime_error{"::open(/dev/urandom): " + errno_string(errno)};
+	}
+
+	void read(char *dest, size_t size)
+	{
+		if(::read(m_fd, dest, size) != (ssize_t)size)
+			throw std::runtime_error{"reading from /dev/random failed."};
+	}
+
+	~RandomSource()
+	{
+		::close(m_fd);
+	}
+
+private:
+	int m_fd;
+};
+
+inline RandomSource& random_source()
+{
+	static RandomSource rs;
+	return rs;
+}
+
+
+class BenchmarkWriter
+{
+public:
+	explicit BenchmarkWriter(size_t buffer_size) :
+		m_buffer(buffer_size) 
+	{
+		random_source().read(m_buffer.data(), m_buffer.size());
+	}
+
+	size_t write(Socket *sock, size_t num_bytes)
+	{
+		size_t total_bytes_written = 0;
+
+		while(total_bytes_written < num_bytes)
+		{
+			auto write_length = std::min(m_buffer.size(), num_bytes - total_bytes_written);
+			int bytes_written = sock->write(m_buffer.data(), write_length);
+
+			if(bytes_written == 0)
+				break;
+
+			total_bytes_written += bytes_written;
+		}
+
+		return total_bytes_written;
+	}
+
+private:
+	std::vector<char> m_buffer;
+};
+
+
+//==================================================================================================
+unsigned char const MSG_DATA = '<';
+unsigned char const MSG_RECEIVED = '>';
+
+
 struct ClientBenchmark
 {
 	Protocol protocol;
@@ -241,8 +320,9 @@ struct ClientBenchmark
 	std::string host;
 
 	int runs = 1;
-	size_t bytes_to_send;
 	SocketOpts opts;
+	size_t bytes_to_send;
+	size_t buffer_size;
 };
 
 ClientBenchmark client_bench_from_invoc(Invocation const &invoc)
@@ -251,9 +331,10 @@ ClientBenchmark client_bench_from_invoc(Invocation const &invoc)
 	bench.host = invoc.host;
 	bench.protocol = invoc.protocol;
 	bench.port = invoc.port;
-	bench.bytes_to_send = invoc.bytes_to_send;
 	bench.opts = invoc.opts;
 	bench.runs = invoc.repeats;
+	bench.bytes_to_send = invoc.bytes_to_send;
+	bench.buffer_size = invoc.buffer_size;
 
 	return bench;
 }
@@ -267,30 +348,31 @@ void run_client_benchmark(ClientBenchmark const &bench)
 	std::cout << addrs[0] << std::endl;
 	std::cout << "Protocol: " << to_string(bench.protocol) << std::endl;
 
+	BenchmarkWriter writer{bench.buffer_size};
+
 	for(int i = 0; i < bench.runs; ++i)
 	{
 		auto socket = make_benchmark_socket(bench.protocol, bench.opts, addrs[0]);
 		socket->print_options();
 		socket->connect();
 
-		size_t const max_buffer_size = 100 * 1024 * 1024;
-		size_t bytes_written = 0;
-		std::vector<char> buffer(std::min(max_buffer_size, bench.bytes_to_send));
+		socket_logger() = {};
+		socket_logger().start("Total");
 
-		size_t iterations = bench.bytes_to_send / max_buffer_size;
-		for(size_t i = 0; i < iterations; ++i)
-		{
-			write_all(socket.get(), buffer.data(), buffer.size());
-			bytes_written += buffer.size();
-		}
+		// Send random data.
+		socket_logger().start("Sending");
+		write_message(socket.get(), MessageHeader{MSG_DATA, bench.bytes_to_send});
+		writer.write(socket.get(), bench.bytes_to_send);
+		socket_logger().stop("Sending");
 
-		auto rest = bench.bytes_to_send - bytes_written;
-		assert(rest <= buffer.size());
-		write_all(socket.get(), buffer.data(), rest);
-		bytes_written += rest;
+		// Wait for confirmation.
+		discard_message(socket.get(), MSG_RECEIVED);
 
-		std::cout << "Wrote " << (bytes_written / 1024.0 / 1024.0) << " Mbytes" << std::endl;
-		socket->print_statistics();
+
+		socket_logger().stop("Total");
+		std::cout << '\n';
+		socket_logger().print();
+		std::cout << '\n';
 	}
 }
 
@@ -327,28 +409,23 @@ int main(int argc, char *argv[])
 		socket->print_options();
 		socket->listen();
 
-		std::vector<char> buffer(10 * 1024 * 1024);
 		while(true)
 		{
 			auto client = socket->accept();
-			std::cout << "Client accepted. " << std::flush;
 
-			size_t bytes_read = 0;
-			size_t read_res = 0;
+			socket_logger() = {};
+			socket_logger().start("Total");
 
-			auto start_time = std::chrono::high_resolution_clock::now();
-			while((read_res = client->read(buffer.data(), buffer.size())))
-				bytes_read += read_res;
+			// Read and discard all data.
+			discard_message(client.get(), MSG_DATA);
 
-			auto end_time = std::chrono::high_resolution_clock::now();
-			std::chrono::duration<double> elapsed = end_time - start_time;
+			// Send confirmation.
+			write_message(client.get(), MessageHeader{MSG_RECEIVED});
 
-			double mbits = (bytes_read * 8) / 1000000.0;
-			double mbps = mbits / elapsed.count();
-
-			std::cout << "Read " << (bytes_read / 1024.0 / 1024.0) << " Mbytes"
-			          << " in " << elapsed.count() << " s"
-			          << " (" << mbps << " Mbits/sec)" << std::endl;
+			socket_logger().stop("Total");
+			std::cout << '\n';
+			socket_logger().print();
+			std::cout << '\n';
 		}
 	}
 	else
@@ -359,7 +436,7 @@ int main(int argc, char *argv[])
 		else
 		{
 			auto defaults = invoc;
-			defaults.run_file.clear();
+			defaults.run_file.clear(); // Don't use the run-file recursively.
 			benchs = load_run_file(invoc.run_file, defaults);
 		}
 
