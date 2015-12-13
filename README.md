@@ -13,7 +13,7 @@ To run protoperf as a server:
 
     $ protoperf -s
 
-To run a client and send 100M to server running on localhost:
+To run a client and send 100M to a server running on localhost:
 
     $ protoperf -c localhost -n 100M
 
