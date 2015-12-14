@@ -3,7 +3,7 @@
 #include "common.hpp"
 #include "socket_logger.hpp"
 
-#include <iostream>
+#include <memory>
 
 
 //==================================================================================================
