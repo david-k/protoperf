@@ -6,7 +6,14 @@
 #include <memory>
 #include <chrono>
 #include <cassert>
+#include <csignal>
+
 #include <fcntl.h>
+
+
+//==================================================================================================
+volatile std::sig_atomic_t running = 1;
+void sigint_handler(int) { running = 0; }
 
 
 //==================================================================================================
@@ -350,11 +357,12 @@ void run_client_benchmark(ClientBenchmark const &bench)
 
 	BenchmarkWriter writer{bench.buffer_size};
 
-	for(int i = 0; i < bench.runs; ++i)
+	for(int i = 0; i < bench.runs && running; ++i)
 	{
 		auto socket = make_benchmark_socket(bench.protocol, bench.opts, addrs[0]);
 		socket->print_options();
 		socket->connect();
+		std::cout << "Connected" << std::endl;
 
 		socket_logger() = {};
 		socket_logger().start("Total");
@@ -399,6 +407,14 @@ std::vector<ClientBenchmark> load_run_file(std::string const &filepath, Invocati
 //==================================================================================================
 int main(int argc, char *argv[])
 {
+	// Setup signal handler for SIGINT.
+	struct sigaction sig;
+	sig.sa_handler = sigint_handler;
+	sig.sa_flags = 0;
+	sigemptyset(&sig.sa_mask);
+	sigaction(SIGINT, &sig, nullptr);
+
+
 	auto invoc = parse_args(argc, argv);
 
 	if(invoc.mode == Invocation::Mode::server)
@@ -413,9 +429,10 @@ int main(int argc, char *argv[])
 		socket->print_options();
 		socket->listen();
 
-		while(true)
+		while(running)
 		{
 			auto client = socket->accept();
+			std::cout << "Accepted client" << std::endl;
 
 			socket_logger() = {};
 			socket_logger().start("Total");
