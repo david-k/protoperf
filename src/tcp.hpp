@@ -135,6 +135,19 @@ public:
 		          << "Total retransmits: " << info.tcpi_total_retrans << std::endl;
 	}
 
+	virtual SocketStats get_stats()
+	{
+		tcp_info info;
+		socklen_t info_size = sizeof(info);
+		if(getsockopt(m_socket, SOL_TCP, TCP_INFO, (void*)&info, &info_size) != 0)
+			throw std::runtime_error{"getsockopt(): " + errno_string(errno)};
+
+		SocketStats stats;
+		stats.rtt = Milliseconds{info.tcpi_rtt / 1000.0};
+
+		return stats;
+	}
+
 private:
 	Address m_addr;
 	int m_socket;

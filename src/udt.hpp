@@ -139,6 +139,12 @@ public:
 		          << "Lost packets (rcv):      " << perf.pktRcvLossTotal << std::endl;
 	}
 
+	virtual SocketStats get_stats()
+	{
+		SocketStats stats{};
+		return stats;
+	}
+
 private:
 	Address m_addr;
 	UDTSOCKET m_socket;

@@ -7,6 +7,13 @@
 
 
 //==================================================================================================
+struct SocketStats
+{
+	Milliseconds rtt;
+};
+
+
+//==================================================================================================
 // Interface for a blocking socket.
 class Socket
 {
@@ -27,6 +34,8 @@ public:
 
 	// Returns the number of bytes read or zero if the connection has been closed.
 	virtual size_t read(char *dest, size_t size) = 0;
+
+	virtual SocketStats get_stats() = 0;
 
 	virtual void print_options() {}
 	virtual void print_statistics() {}

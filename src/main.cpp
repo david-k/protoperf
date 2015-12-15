@@ -7,6 +7,8 @@
 #include <chrono>
 #include <cassert>
 #include <csignal>
+#include <thread>
+#include <atomic>
 
 #include <fcntl.h>
 
@@ -56,11 +58,14 @@ struct Invocation
 	SocketOpts opts;
 	size_t buffer_size = 8 * 1024;
 
+	// Server options
+	size_t server_bytes_to_send = 0;
+
 	// Client options
 	std::string host;
 	int repeats = 1;
 	std::string run_file;
-	size_t bytes_to_send = 1024 * 1024;
+	size_t client_bytes_to_send = 1024 * 1024;
 };
 
 size_t parse_byte_size(char const *str)
@@ -88,6 +93,8 @@ Invocation parse_args(int argc, char *argv[], Invocation const &defaults = {})
 {
 	Invocation invoc = defaults;
 
+	bool bytes_to_send_specified = false;
+	size_t bytes_to_send = 0;
 	for(int i = 1; i < argc; ++i)
 	{
 		if(!std::strcmp(argv[i], "-s"))
@@ -122,7 +129,8 @@ Invocation parse_args(int argc, char *argv[], Invocation const &defaults = {})
 			if(++i == argc)
 				throw std::runtime_error{"You must specify the number of bytes"};
 
-			invoc.bytes_to_send = parse_byte_size(argv[i]);
+			bytes_to_send = parse_byte_size(argv[i]);
+			bytes_to_send_specified = true;
 		}
 		else if(!std::strcmp(argv[i], "-l"))
 		{
@@ -183,6 +191,16 @@ Invocation parse_args(int argc, char *argv[], Invocation const &defaults = {})
 
 	if(invoc.mode == Invocation::Mode::unknown)
 		throw std::runtime_error{"You must specify either -s or -c to run a server or client"};
+
+	if(bytes_to_send_specified)
+	{
+		switch(invoc.mode)
+		{
+			case Invocation::Mode::server: invoc.server_bytes_to_send = bytes_to_send; break;
+			case Invocation::Mode::client: invoc.client_bytes_to_send = bytes_to_send; break;
+			case Invocation::Mode::unknown: break;
+		}
+	}
 
 	return invoc;
 }
@@ -311,8 +329,27 @@ private:
 
 
 //==================================================================================================
+std::atomic<bool> collect_stats{true};
+void stats_thread(Socket *sock, std::string const &filename)
+{
+	std::ofstream file{filename};
+	auto start = time_now();
+	while(collect_stats)
+	{
+		auto stats = sock->get_stats();
+		auto time = time_now() - start;
+
+		file << time.count() << ',' << stats.rtt.count() << std::endl;
+
+		std::this_thread::sleep_for(Milliseconds{100});
+	}
+}
+
+
+//==================================================================================================
 unsigned char const MSG_REQUEST = '<';
 unsigned char const MSG_RESPONSE = '>';
+unsigned char const MSG_CONFIRMATION = '!';
 
 
 struct ClientBenchmark
@@ -335,7 +372,7 @@ ClientBenchmark client_bench_from_invoc(Invocation const &invoc)
 	bench.port = invoc.port;
 	bench.opts = invoc.opts;
 	bench.runs = invoc.repeats;
-	bench.bytes_to_send = invoc.bytes_to_send;
+	bench.bytes_to_send = invoc.client_bytes_to_send;
 	bench.buffer_size = invoc.buffer_size;
 
 	return bench;
@@ -355,6 +392,11 @@ void run_client_benchmark(ClientBenchmark const &bench)
 	for(int i = 0; i < bench.runs; ++i)
 	{
 		auto socket = make_benchmark_socket(bench.protocol, bench.opts, addrs[0]);
+
+		collect_stats = true;
+		std::thread observer{stats_thread, socket.get(), "client_stats_" + std::to_string(i)};
+
+		std::cout << "************************************************************\n";
 		socket->print_options();
 		socket->connect();
 		std::cout << "Connected" << std::endl;
@@ -362,16 +404,27 @@ void run_client_benchmark(ClientBenchmark const &bench)
 		socket_logger() = {};
 		socket_logger().start("Total");
 
+		// 1. Send data
+		// 2. Wait for confirmation
+		// 3. Receive data
+		// 4. Send confirmation
+
 		// Send random data.
+		socket_logger().start("Sending ack");
 		socket_logger().start("Sending");
 		write_message(socket.get(), MessageHeader{MSG_REQUEST, bench.bytes_to_send});
 		writer.write(socket.get(), bench.bytes_to_send);
 		socket_logger().stop("Sending");
 
+		discard_message(socket.get(), MSG_CONFIRMATION);
+		socket_logger().stop("Sending ack");
+
 		// Wait for confirmation.
 		socket_logger().start("Receiving");
 		discard_message(socket.get(), MSG_RESPONSE);
 		socket_logger().stop("Receiving");
+
+		write_message(socket.get(), MessageHeader{MSG_CONFIRMATION});
 
 		socket_logger().stop("Total");
 
@@ -380,7 +433,11 @@ void run_client_benchmark(ClientBenchmark const &bench)
 		socket_logger().print();
 		std::cout << '\n';
 
-		std::cout << "************************************************************\n";
+		// Tell the server we are done.
+		write_message(socket.get(), MessageHeader{MSG_CONFIRMATION});
+
+		collect_stats = false;
+		observer.join();
 	}
 }
 
@@ -418,24 +475,40 @@ int main(int argc, char *argv[])
 		socket->listen();
 
 		BenchmarkWriter writer{invoc.buffer_size};
+		int counter = 1;
 		while(true)
 		{
 			auto client = socket->accept();
+			collect_stats = true;
+			std::thread observer{stats_thread, client.get(), "server_stats_" + std::to_string(counter++)};
+
+			std::cout << "************************************************************\n";
 			std::cout << "Accepted client" << std::endl;
 
 			socket_logger() = {};
 			socket_logger().start("Total");
+
+			// 1. Receive data
+			// 2. Send confirmation
+			// 3. Send data
+			// 4. Wait for confirmation
 
 			// Read and discard all data.
 			socket_logger().start("Receiving");
 			discard_message(client.get(), MSG_REQUEST);
 			socket_logger().stop("Receiving");
 
+			write_message(client.get(), MessageHeader{MSG_CONFIRMATION});
+
 			// Send confirmation.
+			socket_logger().start("Sending ack");
 			socket_logger().start("Sending");
-			write_message(client.get(), MessageHeader{MSG_RESPONSE, invoc.bytes_to_send});
-			writer.write(client.get(), invoc.bytes_to_send);
+			write_message(client.get(), MessageHeader{MSG_RESPONSE, invoc.server_bytes_to_send});
+			writer.write(client.get(), invoc.server_bytes_to_send);
 			socket_logger().stop("Sending");
+
+			discard_message(client.get(), MSG_CONFIRMATION);
+			socket_logger().stop("Sending ack");
 
 			socket_logger().stop("Total");
 
@@ -445,7 +518,8 @@ int main(int argc, char *argv[])
 			socket_logger().print();
 			std::cout << '\n';
 
-			std::cout << "************************************************************\n";
+			collect_stats = false;
+			observer.join();
 		}
 	}
 	else
