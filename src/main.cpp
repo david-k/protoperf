@@ -311,8 +311,8 @@ private:
 
 
 //==================================================================================================
-unsigned char const MSG_DATA = '<';
-unsigned char const MSG_RECEIVED = '>';
+unsigned char const MSG_REQUEST = '<';
+unsigned char const MSG_RESPONSE = '>';
 
 
 struct ClientBenchmark
@@ -364,17 +364,18 @@ void run_client_benchmark(ClientBenchmark const &bench)
 
 		// Send random data.
 		socket_logger().start("Sending");
-		write_message(socket.get(), MessageHeader{MSG_DATA, bench.bytes_to_send});
+		write_message(socket.get(), MessageHeader{MSG_REQUEST, bench.bytes_to_send});
 		writer.write(socket.get(), bench.bytes_to_send);
 		socket_logger().stop("Sending");
 
-		socket->print_statistics();
-
 		// Wait for confirmation.
-		discard_message(socket.get(), MSG_RECEIVED);
-
+		socket_logger().start("Receiving");
+		discard_message(socket.get(), MSG_RESPONSE);
+		socket_logger().stop("Receiving");
 
 		socket_logger().stop("Total");
+
+		socket->print_statistics();
 		std::cout << '\n';
 		socket_logger().print();
 		std::cout << '\n';
@@ -416,6 +417,7 @@ int main(int argc, char *argv[])
 		socket->print_options();
 		socket->listen();
 
+		BenchmarkWriter writer{invoc.buffer_size};
 		while(true)
 		{
 			auto client = socket->accept();
@@ -425,15 +427,19 @@ int main(int argc, char *argv[])
 			socket_logger().start("Total");
 
 			// Read and discard all data.
-			discard_message(client.get(), MSG_DATA);
-
-			client->print_statistics();
+			socket_logger().start("Receiving");
+			discard_message(client.get(), MSG_REQUEST);
+			socket_logger().stop("Receiving");
 
 			// Send confirmation.
-			write_message(client.get(), MessageHeader{MSG_RECEIVED});
+			socket_logger().start("Sending");
+			write_message(client.get(), MessageHeader{MSG_RESPONSE, invoc.bytes_to_send});
+			writer.write(client.get(), invoc.bytes_to_send);
+			socket_logger().stop("Sending");
 
 			socket_logger().stop("Total");
-			
+
+			client->print_statistics();
 			std::cout << '\n';
 
 			socket_logger().print();
