@@ -129,7 +129,10 @@ public:
 		if(getsockopt(m_socket, SOL_TCP, TCP_INFO, (void*)&info, &info_size) != 0)
 			throw std::runtime_error{"getsockopt(): " + errno_string(errno)};
 
-		std::cout << "RTT: " << info.tcpi_rtt / 1000.0 << " ms\n";
+		std::cout << "RTT: " << info.tcpi_rtt / 1000.0 << " ms\n"
+		          << "Lost packets: " << info.tcpi_lost << '\n'
+		          << "Retrans: " << info.tcpi_retrans << '\n'
+		          << "Total retransmits: " << info.tcpi_total_retrans << std::endl;
 	}
 
 private:

@@ -365,6 +365,8 @@ void run_client_benchmark(ClientBenchmark const &bench)
 		writer.write(socket.get(), bench.bytes_to_send);
 		socket_logger().stop("Sending");
 
+		socket->print_statistics();
+
 		// Wait for confirmation.
 		discard_message(socket.get(), MSG_RECEIVED);
 
@@ -373,6 +375,8 @@ void run_client_benchmark(ClientBenchmark const &bench)
 		std::cout << '\n';
 		socket_logger().print();
 		std::cout << '\n';
+
+		std::cout << "************************************************************\n";
 	}
 }
 
@@ -419,13 +423,19 @@ int main(int argc, char *argv[])
 			// Read and discard all data.
 			discard_message(client.get(), MSG_DATA);
 
+			client->print_statistics();
+
 			// Send confirmation.
 			write_message(client.get(), MessageHeader{MSG_RECEIVED});
 
 			socket_logger().stop("Total");
+			
 			std::cout << '\n';
+
 			socket_logger().print();
 			std::cout << '\n';
+
+			std::cout << "************************************************************\n";
 		}
 	}
 	else

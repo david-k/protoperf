@@ -62,7 +62,7 @@ void write_all(Socket *sock, char const *data, size_t size)
 
 size_t read_discard(Socket *sock, int64_t num_bytes)
 {
-	int64_t const buffer_size = 16 * 1024;
+	int64_t const buffer_size = 8 * 1024;
 	char buf[buffer_size];
 	int64_t total_bytes_read = 0;
 

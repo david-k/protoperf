@@ -135,7 +135,8 @@ public:
 		std::cout << "RTT:            " << perf.msRTT << " ms\n"
 		          << "Sending rate:   " << perf.mbpsSendRate << " Mbps\n"
 		          << "Receiving rate: " << perf.mbpsRecvRate << " Mbps\n"
-		          << "Bandwidth:      " << perf.mbpsBandwidth << " Mbps" << std::endl;
+		          << "Lost packets (snd):      " << perf.pktSndLossTotal << "\n"
+		          << "Lost packets (rcv):      " << perf.pktRcvLossTotal << std::endl;
 	}
 
 private:

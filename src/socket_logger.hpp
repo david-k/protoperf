@@ -5,7 +5,9 @@
 #include <unordered_map>
 #include <vector>
 #include <list>
+#include <list>
 #include <iostream>
+#include <fstream>
 #include <iomanip>
 #include <sstream>
 
@@ -52,11 +54,20 @@ std::string bps_to_string(size_t bps)
 }
 
 
+using TimePoint = std::chrono::high_resolution_clock::time_point;
+using Seconds = std::chrono::duration<double>;
+using Milliseconds = std::chrono::duration<double, std::milli>;
+
+inline TimePoint time_now()
+{
+	return std::chrono::high_resolution_clock::now();
+}
+
+
 //==================================================================================================
 class SocketLogger
 {
 public:
-	using TimePoint = std::chrono::high_resolution_clock::time_point;
 
 	struct Record
 	{
@@ -75,7 +86,7 @@ public:
 
 	void start(std::string const &scope)
 	{
-		m_active_records[scope] = {scope, std::chrono::high_resolution_clock::now()};
+		m_active_records[scope] = {scope, time_now()};
 	}
 
 	void stop(std::string const &scope)
@@ -84,7 +95,7 @@ public:
 		if(rec == m_active_records.end())
 			throw std::runtime_error{"Scope has not been started: " + scope};
 
-		rec->second.end = std::chrono::high_resolution_clock::now();
+		rec->second.end = time_now();
 		m_closed_records.push_back(rec->second);
 
 		m_active_records.erase(rec);
