@@ -4,6 +4,30 @@
 
 #include <unistd.h>
 #include <netinet/tcp.h>
+#include <sys/socket.h>
+
+
+//==================================================================================================
+template<typename T>
+T getsockopt(int sock, int level, int opt_name)
+{
+	T val = 0;
+	socklen_t len = sizeof(T);
+	if(getsockopt(sock, level, opt_name, (void*)&val, &len) == -1)
+		throw std::runtime_error{"getsockopt(): " + errno_string(errno)};
+
+	return val;
+}
+
+template<typename T>
+T setsockopt(int sock, int level, int opt_name, T val)
+{
+	socklen_t len = sizeof(T);
+	if(setsockopt(sock, level, opt_name, (void*)&val, len) == -1)
+		throw std::runtime_error{"setsockopt(): " + errno_string(errno)};
+
+	return val;
+}
 
 
 //==================================================================================================
@@ -26,6 +50,8 @@ public:
 	{
 		::close(m_socket);
 	}
+
+	int native() { return m_socket; }
 
 	virtual void listen()
 	{
@@ -122,6 +148,20 @@ public:
 		}
 	}
 
+	// Should be called after calling listen() or connect() since some OS's don't show modified
+	// values until then.
+	virtual void print_options()
+	{
+		auto recv_buf = getsockopt<int32_t>(m_socket, SOL_SOCKET, SO_RCVBUF);
+		auto send_buf = getsockopt<int32_t>(m_socket, SOL_SOCKET, SO_SNDBUF);
+		auto max_seg_size = getsockopt<int32_t>(m_socket, IPPROTO_TCP, TCP_MAXSEG);
+
+		std::cout << "Receive buffer: " << bytes_to_string(recv_buf) << '\n'
+		          << "Send buffer:    " << bytes_to_string(send_buf) << '\n'
+		          << "MSS:            " << bytes_to_string(max_seg_size)
+		          << std::endl;
+	}
+
 	virtual void print_statistics()
 	{
 		tcp_info info;
@@ -144,6 +184,8 @@ public:
 
 		SocketStats stats;
 		stats.rtt = Milliseconds{info.tcpi_rtt / 1000.0};
+		stats.cwnd_size = info.tcpi_snd_cwnd;
+		stats.rwnd_size = 0;
 
 		return stats;
 	}

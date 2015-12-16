@@ -10,6 +10,8 @@
 struct SocketStats
 {
 	Milliseconds rtt;
+	size_t cwnd_size;
+	size_t rwnd_size;
 };
 
 

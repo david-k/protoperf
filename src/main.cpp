@@ -32,11 +32,13 @@ std::string to_string(Protocol p)
 
 struct SocketOpts
 {
-	int udt_snd_buf = -1;
-	int udt_rcv_buf = -1;
-	int udp_snd_buf = -1;
-	int udp_rcv_buf = -1;
-	int udt_packet_size = -1;
+	int snd_buf = -1;
+	int rcv_buf = -1;
+	int packet_size = -1;
+
+	// UDP send/receive buffer sizes used by UDT.
+	int udt_udp_snd_buf = -1;
+	int udt_udp_rcv_buf = -1;
 };
 
 
@@ -143,40 +145,40 @@ Invocation parse_args(int argc, char *argv[], Invocation const &defaults = {})
 		{
 			invoc.protocol = Protocol::udt;
 		}
-		else if(!std::strcmp(argv[i], "--udt-packet-size"))
+		else if(!std::strcmp(argv[i], "--packet-size"))
 		{
 			if(++i == argc)
 				throw std::runtime_error{"You must specify the number of bytes"};
 
-			invoc.opts.udt_packet_size = parse_byte_size(argv[i]);
+			invoc.opts.packet_size = parse_byte_size(argv[i]);
 		}
-		else if(!std::strcmp(argv[i], "--udt-snd-buf"))
+		else if(!std::strcmp(argv[i], "--snd-buf"))
 		{
 			if(++i == argc)
 				throw std::runtime_error{"You must specify the number of bytes"};
 
-			invoc.opts.udt_snd_buf = parse_byte_size(argv[i]);
+			invoc.opts.snd_buf = parse_byte_size(argv[i]);
 		}
-		else if(!std::strcmp(argv[i], "--udt-rcv-buf"))
+		else if(!std::strcmp(argv[i], "--rcv-buf"))
 		{
 			if(++i == argc)
 				throw std::runtime_error{"You must specify the number of bytes"};
 
-			invoc.opts.udt_rcv_buf = parse_byte_size(argv[i]);
+			invoc.opts.rcv_buf = parse_byte_size(argv[i]);
 		}
-		else if(!std::strcmp(argv[i], "--udp-snd-buf"))
+		else if(!std::strcmp(argv[i], "--udt-udp-snd-buf"))
 		{
 			if(++i == argc)
 				throw std::runtime_error{"You must specify the number of bytes"};
 
-			invoc.opts.udp_snd_buf = parse_byte_size(argv[i]);
+			invoc.opts.udt_udp_snd_buf = parse_byte_size(argv[i]);
 		}
-		else if(!std::strcmp(argv[i], "--udp-rcv-buf"))
+		else if(!std::strcmp(argv[i], "--udt-udp-rcv-buf"))
 		{
 			if(++i == argc)
 				throw std::runtime_error{"You must specify the number of bytes"};
 
-			invoc.opts.udp_rcv_buf = parse_byte_size(argv[i]);
+			invoc.opts.udt_udp_rcv_buf = parse_byte_size(argv[i]);
 		}
 		else if(!std::strcmp(argv[i], "--run-file"))
 		{
@@ -237,22 +239,35 @@ std::unique_ptr<Socket> make_benchmark_socket(Protocol proto, SocketOpts const &
 {
 	switch(proto)
 	{
-		case Protocol::tcp: return std::unique_ptr<TCPSocket>{new TCPSocket{addr}};
+		case Protocol::tcp:
+		{
+			std::unique_ptr<TCPSocket> sock{new TCPSocket{addr}};
+
+			if(opts.snd_buf != -1)
+				setsockopt(sock->native(), SOL_SOCKET, SO_SNDBUF, opts.snd_buf);
+			if(opts.rcv_buf != -1)
+				setsockopt(sock->native(), SOL_SOCKET, SO_RCVBUF, opts.rcv_buf);
+
+			if(opts.packet_size != -1)
+				setsockopt(sock->native(), IPPROTO_TCP, TCP_MAXSEG, opts.packet_size);
+
+			return std::move(sock);
+		}
 		case Protocol::udt:
 		{
 		    std::unique_ptr<UDTSocket> sock{new UDTSocket{addr}};
 
-			if(opts.udt_snd_buf != -1)
-				udt_setsockopt(sock->native(), UDT_SNDBUF, opts.udt_snd_buf);
-			if(opts.udt_rcv_buf != -1)
-				udt_setsockopt(sock->native(), UDT_RCVBUF, opts.udt_rcv_buf);
-			if(opts.udp_snd_buf != -1)
-				udt_setsockopt(sock->native(), UDP_SNDBUF, opts.udp_snd_buf);
-			if(opts.udp_rcv_buf != -1)
-				udt_setsockopt(sock->native(), UDP_RCVBUF, opts.udp_rcv_buf);
+			if(opts.snd_buf != -1)
+				udt_setsockopt(sock->native(), UDT_SNDBUF, opts.snd_buf);
+			if(opts.rcv_buf != -1)
+				udt_setsockopt(sock->native(), UDT_RCVBUF, opts.rcv_buf);
+			if(opts.udt_udp_snd_buf != -1)
+				udt_setsockopt(sock->native(), UDP_SNDBUF, opts.udt_udp_snd_buf);
+			if(opts.udt_udp_rcv_buf != -1)
+				udt_setsockopt(sock->native(), UDP_RCVBUF, opts.udt_udp_rcv_buf);
 
-			if(opts.udt_packet_size != -1)
-				udt_setsockopt(sock->native(), UDT_MSS, opts.udt_packet_size);
+			if(opts.packet_size != -1)
+				udt_setsockopt(sock->native(), UDT_MSS, opts.packet_size);
 
 			return std::move(sock);
 		}
@@ -339,7 +354,11 @@ void stats_thread(Socket *sock, std::string const &filename)
 		auto stats = sock->get_stats();
 		auto time = time_now() - start;
 
-		file << time.count() << ',' << stats.rtt.count() << std::endl;
+		file << time.count() << ','
+		     << stats.rtt.count() << ',' 
+		     << stats.cwnd_size  << ','
+		     << stats.rwnd_size
+		     << std::endl;
 
 		std::this_thread::sleep_for(Milliseconds{100});
 	}
@@ -397,8 +416,8 @@ void run_client_benchmark(ClientBenchmark const &bench)
 		std::thread observer{stats_thread, socket.get(), "client_stats_" + std::to_string(i)};
 
 		std::cout << "************************************************************\n";
-		socket->print_options();
 		socket->connect();
+		socket->print_options();
 		std::cout << "Connected" << std::endl;
 
 		socket_logger() = {};
@@ -471,8 +490,8 @@ int main(int argc, char *argv[])
 		std::cout << addrs[0] << std::endl;
 		std::cout << "Protocol: " << to_string(invoc.protocol) << std::endl;
 		auto socket = make_benchmark_socket(invoc.protocol, invoc.opts, addrs[0]);
-		socket->print_options();
 		socket->listen();
+		socket->print_options();
 
 		BenchmarkWriter writer{invoc.buffer_size};
 		int counter = 1;
