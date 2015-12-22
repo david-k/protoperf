@@ -175,19 +175,23 @@ public:
 		          << "Total retransmits: " << info.tcpi_total_retrans << std::endl;
 	}
 
-	virtual SocketStats get_stats()
+	virtual std::ostream& stats_csv(std::ostream &os)
 	{
 		tcp_info info;
 		socklen_t info_size = sizeof(info);
 		if(getsockopt(m_socket, SOL_TCP, TCP_INFO, (void*)&info, &info_size) != 0)
 			throw std::runtime_error{"getsockopt(): " + errno_string(errno)};
 
-		SocketStats stats;
-		stats.rtt = Milliseconds{info.tcpi_rtt / 1000.0};
-		stats.cwnd_size = info.tcpi_snd_cwnd;
-		stats.rwnd_size = 0;
+		os << Milliseconds{info.tcpi_rtt / 1000.0}.count()
+		   << ',' << info.tcpi_snd_cwnd
+		   << ',' << info.tcpi_snd_mss
+		   << ',' << info.tcpi_rcv_mss
+		   << ',' << info.tcpi_reordering
+		   << ',' << info.tcpi_snd_ssthresh
+		   << ',' << info.tcpi_rcv_ssthresh
+		;
 
-		return stats;
+		return os;
 	}
 
 private:

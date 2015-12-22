@@ -139,10 +139,9 @@ public:
 		          << "Lost packets (rcv):      " << perf.pktRcvLossTotal << std::endl;
 	}
 
-	virtual SocketStats get_stats()
+	virtual std::ostream& stats_csv(std::ostream &os)
 	{
-		SocketStats stats{};
-		return stats;
+		return os;
 	}
 
 private:

@@ -348,17 +348,13 @@ std::atomic<bool> collect_stats{true};
 void stats_thread(Socket *sock, std::string const &filename)
 {
 	std::ofstream file{filename};
+
 	auto start = time_now();
 	while(collect_stats)
 	{
-		auto stats = sock->get_stats();
 		auto time = time_now() - start;
-
-		file << time.count() << ','
-		     << stats.rtt.count() << ',' 
-		     << stats.cwnd_size  << ','
-		     << stats.rwnd_size
-		     << std::endl;
+		file << time.count() << ',';
+		sock->stats_csv(file) << std::endl;
 
 		std::this_thread::sleep_for(Milliseconds{100});
 	}
@@ -429,14 +425,14 @@ void run_client_benchmark(ClientBenchmark const &bench)
 		// 4. Send confirmation
 
 		// Send random data.
-		socket_logger().start("Sending ack");
+		socket_logger().start("Sending acked");
 		socket_logger().start("Sending");
 		write_message(socket.get(), MessageHeader{MSG_REQUEST, bench.bytes_to_send});
 		writer.write(socket.get(), bench.bytes_to_send);
 		socket_logger().stop("Sending");
 
 		discard_message(socket.get(), MSG_CONFIRMATION);
-		socket_logger().stop("Sending ack");
+		socket_logger().stop("Sending acked");
 
 		// Wait for confirmation.
 		socket_logger().start("Receiving");
@@ -520,14 +516,14 @@ int main(int argc, char *argv[])
 			write_message(client.get(), MessageHeader{MSG_CONFIRMATION});
 
 			// Send confirmation.
-			socket_logger().start("Sending ack");
+			socket_logger().start("Sending acked");
 			socket_logger().start("Sending");
 			write_message(client.get(), MessageHeader{MSG_RESPONSE, invoc.server_bytes_to_send});
 			writer.write(client.get(), invoc.server_bytes_to_send);
 			socket_logger().stop("Sending");
 
 			discard_message(client.get(), MSG_CONFIRMATION);
-			socket_logger().stop("Sending ack");
+			socket_logger().stop("Sending acked");
 
 			socket_logger().stop("Total");
 
